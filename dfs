@@ -1,0 +1,58 @@
+import requests
+import os
+from urllib.parse import urljoin
+from collections import deque
+
+# SharePoint site URL
+site_url = "https://example.sharepoint.com/sites/mysite"
+
+# SharePoint site relative path
+site_path = "/sites/mysite"
+
+# Destination folder to save files
+download_dir = "sharepoint_downloads"
+
+# Authentication credentials
+username = "your_username"
+password = "your_password"
+
+def download_file(file_url, local_path):
+    """Download a file from SharePoint"""
+    response = requests.get(file_url, auth=(username, password), stream=True)
+    with open(local_path, "wb") as file:
+        for chunk in response.iter_content(chunk_size=1024):
+            file.write(chunk)
+
+def dfs_download(start_path):
+    """Perform depth-first search to download files and folders from SharePoint"""
+    stack = deque([(start_path, os.path.join(download_dir, start_path.lstrip("/")))])
+    visited = set()
+
+    while stack:
+        current_path, local_path = stack.pop()
+        if current_path not in visited:
+            visited.add(current_path)
+
+            # Get the list of items in the current folder
+            response = requests.get(urljoin(site_url, current_path) + "/_api/web/getfolderbyserverrelativeurl('" + current_path.replace(site_path, "") + "')/files", auth=(username, password))
+            data = response.json()
+
+            # Download files in the current folder
+            for file in data["d"]["results"]:
+                file_url = urljoin(site_url, file["ServerRelativeUrl"])
+                local_file_path = os.path.join(local_path, file["Name"])
+                os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+                download_file(file_url, local_file_path)
+                print(f"Downloaded file: {local_file_path}")
+
+            # Add subfolders to the stack
+            for folder in data["d"]["results"]:
+                if folder["ServerRelativeUrl"].endswith("/"):
+                    subfolder_path = urljoin(current_path, folder["Name"])
+                    subfolder_local_path = os.path.join(local_path, folder["Name"])
+                    stack.append((subfolder_path, subfolder_local_path))
+
+if __name__ == "__main__":
+    os.makedirs(download_dir, exist_ok=True)
+    dfs_download(site_path)
+    print("Done!")
